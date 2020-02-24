@@ -1,2 +1,2 @@
-include ':union-type-adapter'
-rootProject.name='gson-union-type-adapter'
+include ':type-adapters'
+rootProject.name='gson-type-adapters'

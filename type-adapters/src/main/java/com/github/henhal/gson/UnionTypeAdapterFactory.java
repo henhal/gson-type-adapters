@@ -2,10 +2,8 @@ package com.github.henhal.gson;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import com.google.gson.JsonDeserializer;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
-import com.google.gson.JsonParseException;
 import com.google.gson.TypeAdapter;
 import com.google.gson.TypeAdapterFactory;
 import com.google.gson.reflect.TypeToken;
@@ -42,49 +40,16 @@ import java.util.Set;
  *
  */
 public class UnionTypeAdapterFactory implements TypeAdapterFactory {
-    private static final String WRAPPER_DATA_FIELD = "data";
-    private static final String WRAPPER_TYPE_FIELD = "type";
+    protected final WrapperSubTypeAdapter<Object> mWrapperAdapter;
+    private final boolean mIncludeInheritedFields;
 
-    private static final JsonDeserializer<Object> WRAPPER_DESERIALIZER = (json, typeOfT, context) -> {
-        try {
-            return context.deserialize(
-                    json.getAsJsonObject().getAsJsonObject(WRAPPER_DATA_FIELD),
-                    Class.forName(json.getAsJsonObject().get(WRAPPER_TYPE_FIELD).getAsString()));
-        } catch (ClassNotFoundException e) {
-            throw new JsonParseException(e);
-        }
-    };
-
-    private static void wrapElement(JsonObject tree, Field unionField, TypeMapping mapping) {
-        String elementName = getSerializedName(unionField, mapping);
-        String wrapperName = unionField.getName();
-
-        // Wrap an element with an object containing that element + the class name of the element
-
-        JsonElement element = tree.get(elementName);
-        JsonObject wrapper = new JsonObject();
-        wrapper.add(WRAPPER_DATA_FIELD, element);
-        wrapper.addProperty(WRAPPER_TYPE_FIELD, mapping.type().getName());
-
-        tree.remove(elementName);
-        tree.add(wrapperName, wrapper);
-    }
-
-    private static void renameTreeProperty(JsonObject tree, String oldName, String newName) {
-        if (!oldName.equals(newName)) {
-            JsonElement element = tree.get(oldName);
-            tree.add(newName, element);
-            tree.remove(oldName);
-        }
-    }
-
-    private static String getSerializedName(Field unionField, TypeMapping mapping) {
+    private String getSerializedName(Field unionField, TypeMapping mapping) {
         String serializedName = mapping.serializedName();
 
         return serializedName.isEmpty() ? unionField.getName() : serializedName;
     }
 
-    private static TypeMapping getMapping(JsonObject tree, Field unionField) {
+    private TypeMapping getMapping(JsonObject tree, Field unionField) {
         Union union = unionField.getAnnotation(Union.class);
         String typeValue = tree.get(union.discriminator()).getAsString();
 
@@ -97,7 +62,24 @@ public class UnionTypeAdapterFactory implements TypeAdapterFactory {
         return null;
     }
 
-    private final boolean mIncludeInheritedFields;
+    private void wrapElement(JsonObject tree, Field unionField, TypeMapping mapping) {
+        // Wrap an element with an object containing that element + the class name of the element
+        JsonElement element = tree.remove(getSerializedName(unionField, mapping));
+        JsonObject wrapper = mWrapperAdapter.wrapJsonElement(
+                new WrapperSubTypeAdapter.TypedData(
+                        mapping.type().getName(),
+                        element));
+
+        tree.add(unionField.getName(), wrapper);
+    }
+
+    private void renameTreeProperty(JsonObject tree, String oldName, String newName) {
+        if (!oldName.equals(newName)) {
+            JsonElement element = tree.get(oldName);
+            tree.add(newName, element);
+            tree.remove(oldName);
+        }
+    }
 
     private Set<Field> getAnnotatedFields(Set<Field> out,
                                           Class<?> clazz,
@@ -162,6 +144,7 @@ public class UnionTypeAdapterFactory implements TypeAdapterFactory {
      */
     public UnionTypeAdapterFactory(boolean includeInheritedFields) {
         mIncludeInheritedFields = includeInheritedFields;
+        mWrapperAdapter = new WrapperSubTypeAdapter<>();
     }
 
     /**
@@ -173,8 +156,8 @@ public class UnionTypeAdapterFactory implements TypeAdapterFactory {
 
     @Override
     public <T> TypeAdapter<T> create(Gson gson, TypeToken<T> type) {
-        Class<? super T> clazz = type.getRawType();
-        Set<Field> unionFields = getAnnotatedFields(new HashSet<>(), clazz, Union.class);
+        final Class<? super T> clazz = type.getRawType();
+        final Set<Field> unionFields = getAnnotatedFields(new HashSet<>(), clazz, Union.class);
 
         if (unionFields.isEmpty()) {
             return null;
@@ -182,7 +165,7 @@ public class UnionTypeAdapterFactory implements TypeAdapterFactory {
 
         validateUnionFields(clazz, unionFields);
 
-        TypeAdapter<JsonElement> treeAdapter = gson.getAdapter(JsonElement.class);
+        final TypeAdapter<JsonElement> treeAdapter = gson.getAdapter(JsonElement.class);
 
         return new TypeAdapter<T>() {
             @Override
@@ -219,9 +202,10 @@ public class UnionTypeAdapterFactory implements TypeAdapterFactory {
                                 unionField,
                                 mapping);
 
-                        // Register temporary type adapter for the data class,
-                        // for this deserialization session only
-                        gb.registerTypeAdapter(unionField.getType(), WRAPPER_DESERIALIZER);
+                        // Register temporary type adapter for the data class, which unwraps
+                        // the element and deserializes it using the supplied type -
+                        // for this deserialization session only.
+                        gb.registerTypeAdapter(unionField.getType(), mWrapperAdapter);
                     }
                 }
 

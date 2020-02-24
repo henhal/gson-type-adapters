@@ -13,7 +13,11 @@ import java.io.InputStream;
 enum Type {FOO, BAR}
 abstract class Data {}
 class Foo extends Data {
-    public final String foo = "foo";
+    public final String value;
+
+    Foo(String value) {
+        this.value = value;
+    }
 }
 
 class UnionObject {
@@ -23,7 +27,7 @@ class UnionObject {
             @TypeMapping(value = "FOO", type = Foo.class),
             @TypeMapping(value = "BAR", type = Bar.class)
     })
-    Data data = new Foo();
+    Data data;
 
     UnionObject(Type type, Data data) {
         this.type = type;
@@ -42,7 +46,7 @@ class ConflictingTypesUnionObject extends UnionObject {
     Data data2;
 
     ConflictingTypesUnionObject() {
-        super(Type.FOO, new Foo());
+        super(Type.FOO, new Foo("conflicting types"));
         type2 = Type.BAR;
         data2 = new Bar(Bar.BarType.METAL, new Bar.Metal("aluminium"));
     }
@@ -54,12 +58,12 @@ class InvalidUnionDiscriminatorObject {
             @TypeMapping(value = "FOO", type = Foo.class),
             @TypeMapping(value = "BAR", type = Bar.class)
     })
-    Data data3 = new Foo();
+    Data data3 = new Foo("invalid discriminator");
 }
 
 class InheritedUnionObject extends UnionObject {
     InheritedUnionObject() {
-        super(Type.FOO, new Foo());
+        super(Type.FOO, new Foo("inherited"));
     }
 }
 
@@ -107,11 +111,34 @@ public class UnionTypeAdapterFactoryTests {
     }
 
     @Test
+    public void testSimple() {
+        Gson gson = getGson(false);
+
+        // Serialize
+        UnionObject obj = new UnionObject(Type.FOO, new Foo("simple"));
+        String json = gson.toJson(obj);
+        Assert.assertNotNull(json);
+        JsonObject jsonObject = gson.fromJson(json, JsonObject.class);
+        Assert.assertEquals("FOO", jsonObject.get("type").getAsString());
+        JsonObject jsonFoo = jsonObject.getAsJsonObject("data");
+        Assert.assertNotNull(jsonFoo);
+        Assert.assertEquals("simple", jsonFoo.get("value").getAsString());
+
+        // Deserialize
+        UnionObject o = gson.fromJson(json, UnionObject.class);
+        Assert.assertNotNull(o);
+        Assert.assertEquals(Type.FOO, o.type);
+        Assert.assertEquals(Foo.class, o.data.getClass());
+        Foo foo = (Foo)o.data;
+        Assert.assertEquals("simple", foo.value);
+    }
+
+    @Test
     public void testInheritedUnionFields() {
         Gson gson = getGson(true);
 
         String json = gson.toJson(new InheritedUnionObject());
-        Assert.assertEquals("{\"type\":\"FOO\",\"data\":{\"foo\":\"foo\"}}", json);
+        Assert.assertEquals("{\"type\":\"FOO\",\"data\":{\"value\":\"inherited\"}}", json);
 
         InheritedUnionObject u = gson.fromJson(json, InheritedUnionObject.class);
         Assert.assertEquals(Foo.class, u.data.getClass());
@@ -128,7 +155,7 @@ public class UnionTypeAdapterFactoryTests {
         Assert.assertEquals("BAR", jsonObject.get("type2").getAsString());
         JsonObject data = jsonObject.getAsJsonObject("data");
         Assert.assertNotNull(data);
-        Assert.assertEquals("foo", data.get("foo").getAsString());
+        Assert.assertEquals("conflicting types", data.get("value").getAsString());
         JsonObject data2 = jsonObject.getAsJsonObject("data2");
         Assert.assertNotNull(data2);
         Assert.assertEquals("METAL", data2.get("barType").getAsString());
@@ -141,10 +168,9 @@ public class UnionTypeAdapterFactoryTests {
     public void testInvalidDiscriminatorUnion() {
         try {
             String json = getGson(false).toJson(new InvalidUnionDiscriminatorObject());
-            Assert.assertTrue("Exception not thrown with invalid Union object", false);
+            Assert.fail("Exception not thrown with invalid Union object");
             Assert.assertNotNull(json);
         } catch (Exception e) {
-            System.out.println(e.getMessage());
             Assert.assertTrue("Unexpected exception message for invalid Union object",
                     e.getMessage().contains("invalid discriminator"));
         }

@@ -38,6 +38,7 @@ version = android.defaultConfig.versionName
 
 def siteUrl = 'https://github.com/henhal/gson-union-type-adapter'
 def gitUrl = 'https://github.com/henhal/gson-union-type-adapter.git'
+def jarname = 'gson-type-adapters'
 group = 'com.github.henhal.gson'
 
 dependencies {
@@ -68,12 +69,12 @@ task sourcesJar(type: Jar) {
 
 task debugJar(type: Jar) {
     from 'build/intermediates/classes/debug/'
-    archiveName "jq-$version-debug.jar"
+    archiveName "$jarname-$version-debug.jar"
 }
 
 task releaseJar(type: Jar) {
     from 'build/intermediates/classes/release/'
-    archiveName "jq-$version-release.jar"
+    archiveName "$jarname-$version-release.jar"
 }
 
 task jar(dependsOn: [debugJar, releaseJar])
@@ -93,7 +94,7 @@ bintray {
     configurations = ['archives']
     pkg {
         repo = "maven"
-        name = "jq"
+        name = jarname
         websiteUrl = siteUrl
         vcsUrl = gitUrl
         licenses = ["Apache-2.0"]
